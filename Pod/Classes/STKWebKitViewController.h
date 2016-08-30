@@ -21,6 +21,9 @@ typedef enum {
 
 + (NSBundle *)bundle;
 
+- (instancetype)initWithHTMLString:(NSString *)htmlString baseURLString:(NSString *)baseURLString;
+- (instancetype)initWithHTMLString:(NSString *)htmlString baseURLString:(NSString *) baseURLString isAbout:(BOOL) isAbout;
+
 - (instancetype)initWithURL:(NSURL *)url;
 - (instancetype)initWithURL:(NSURL *)url userScript:(WKUserScript *)script;
 
@@ -28,7 +31,10 @@ typedef enum {
 - (instancetype)initWithAddress:(NSString *)string userScript:(WKUserScript *)script;
 
 - (instancetype)initWithRequest:(NSURLRequest *)request;
-- (instancetype)initWithRequest:(NSURLRequest *)request userScript:(WKUserScript *)script NS_DESIGNATED_INITIALIZER;
+- (instancetype)initWithRequest:(NSURLRequest *)request userScript:(WKUserScript *)script;
+
+@property (nonatomic, copy) NSString *viewTitle;
+@property(nonatomic, assign) BOOL isAbout;
 
 @property(nonatomic, readonly) WKWebView *webView;
 

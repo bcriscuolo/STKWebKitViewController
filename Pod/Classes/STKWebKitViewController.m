@@ -7,6 +7,7 @@
 //
 
 #import "STKWebKitViewController.h"
+#import "GPSAppDelegate.h"
 
 @interface STKWebKitViewController ()
 
@@ -17,7 +18,11 @@
 
 @property(nonatomic) NSURLRequest *request;
 
+@property(nonatomic, copy) NSString *htmlString;
+@property(nonatomic, copy) NSString *baseURLString;
+
 @property (nonatomic) BOOL toolbarWasHidden;
+
 @end
 
 @implementation STKWebKitViewController
@@ -46,6 +51,11 @@
     return [self initWithURL:[NSURL URLWithString:urlString]];
 }
 
+- (instancetype)initWithHTMLString:(NSString *)htmlString baseURLString:(NSString *)baseURLString
+{
+    return [self initWithHTMLString:htmlString baseURLString:baseURLString isAbout:NO];
+}
+
 - (instancetype)initWithURL:(NSURL *)url
 {
     return [self initWithURL:url userScript:nil];
@@ -66,6 +76,24 @@
     return [self initWithRequest:request userScript:nil];
 }
 
+- (instancetype)initWithHTMLString:(NSString *)htmlString baseURLString:(NSString *) baseURLString isAbout:(BOOL) isAbout
+{
+    if (self = [super initWithNibName:nil bundle:nil]) {
+        NSAssert([[UIDevice currentDevice].systemVersion floatValue] >= 8.0, @"WKWebView is available since iOS8. Use UIWebView, if you´re running an older version");
+        NSAssert([NSThread isMainThread], @"WebKit is not threadsafe and this function is not executed on the main thread");
+        
+        self.customSchemes = @[@"mailto", @"tel", @"itms-appss", @"telprompt", @"maps"];
+        self.htmlString = htmlString;
+        self.baseURLString = baseURLString;
+        self.request = nil;
+        self.newTabOpenMode = OpenNewTabExternal;
+        _webView = [[WKWebView alloc] initWithFrame:CGRectZero];
+        _webView.navigationDelegate = self;
+        [self.view addSubview:_webView];
+    }
+    return self;
+}
+
 - (instancetype)initWithRequest:(NSURLRequest *)request userScript:(WKUserScript *)script
 {
     if (self = [super initWithNibName:nil bundle:nil]) {
@@ -74,6 +102,10 @@
         
         self.newTabOpenMode = OpenNewTabExternal;
         self.request = request;
+        self.htmlString = nil;
+        self.baseURLString = nil;
+        self.customSchemes = @[@"mailto", @"tel", @"itms-appss", @"telprompt", @"maps"];
+        
         if (script) {
             WKUserContentController *userContentController = [[WKUserContentController alloc] init];
             [userContentController addUserScript:script];
@@ -94,10 +126,26 @@
     return [UIImage imageNamed:imageName inBundle:[self.class bundle] compatibleWithTraitCollection:nil];
 }
 
+- (void) setNavTitle:(NSString *) title
+{
+    UILabel *label = [[UILabel alloc] init];
+    label.adjustsFontSizeToFitWidth = YES;
+    label.lineBreakMode = NSLineBreakByTruncatingTail;
+    label.numberOfLines = 1;
+    label.textAlignment = NSTextAlignmentLeft;
+    [label setFont:[UIFont fontWithName:[GPSAppDelegate appDelegate].boldFontName size:20.0]];
+    label.textColor = [[GPSAppDelegate appDelegate] contrastTintColor];
+    label.text = title;
+    [label sizeToFit];
+    
+    self.navigationItem.titleView = label;
+}
+
 - (void)viewWillAppear:(BOOL)animated
 {
     [super viewWillAppear:animated];
     
+    [self setNavTitle:self.viewTitle];
     NSAssert(self.navigationController, @"STKWebKitViewController needs to be contained in a UINavigationController. If you are presenting STKWebKitViewController modally, use STKModalWebKitViewController instead.");
     
     [self.view setNeedsUpdateConstraints];
@@ -105,21 +153,12 @@
     [self.navigationController setToolbarHidden:NO animated:YES];
     [self fillToolbar];
     
-    self.savedNavigationbarTintColor = self.navigationController.navigationBar.barTintColor;
-    self.savedToolbarTintColor = self.navigationController.toolbar.barTintColor;
-    self.savedToolbarItemTintColor = self.navigationController.toolbar.tintColor;
     
-    if (self.toolbarTintColor) {
-        self.navigationController.toolbar.barTintColor = self.toolbarTintColor;
-        self.navigationController.toolbar.backgroundColor = self.toolbarTintColor;
-        self.navigationController.toolbar.tintColor = [UIColor whiteColor];
-    }
-    if (self.toolbarItemTintColor) {
-        self.navigationController.toolbar.tintColor = self.toolbarItemTintColor;
-    }
-    if (self.navigationBarTintColor) {
-        self.navigationController.navigationBar.barTintColor = self.navigationBarTintColor;
-    }
+    self.navigationController.navigationBar.translucent = YES;
+    self.navigationController.navigationBar.barTintColor = [GPSAppDelegate appDelegate].tintColor;
+    self.navigationController.navigationBar.tintColor = [GPSAppDelegate appDelegate].contrastTintColor;
+
+    self.navigationController.toolbar.barTintColor = [GPSAppDelegate appDelegate].tintColor;
     
     [self addObserver:self forKeyPath:@"webView.title" options:NSKeyValueObservingOptionNew context:NULL];
     [self addObserver:self forKeyPath:@"webView.loading" options:NSKeyValueObservingOptionNew context:NULL];
@@ -128,16 +167,14 @@
     if (self.request) {
         [self.webView loadRequest:self.request];
     }
+    else if (self.htmlString != nil) {
+        [self.webView loadHTMLString:self.htmlString baseURL:[NSURL URLWithString:self.baseURLString]];
+    }
 }
 
 - (void)viewWillDisappear:(BOOL)animated
 {
     [super viewWillDisappear:animated];
-    
-    self.navigationController.navigationBar.barTintColor = self.savedNavigationbarTintColor;
-    [self.navigationController setToolbarHidden:self.toolbarWasHidden];
-    self.navigationController.toolbar.barTintColor = self.savedToolbarTintColor;
-    self.navigationController.toolbar.tintColor = self.savedToolbarItemTintColor;
     
     [self removeObserver:self forKeyPath:@"webView.title"];
     [self removeObserver:self forKeyPath:@"webView.loading"];
@@ -156,36 +193,41 @@
 
 - (void)fillToolbar
 {
-    UIBarButtonItem *backItem = [[UIBarButtonItem alloc] initWithImage:[self imageNamed:@"back" ] style:UIBarButtonItemStylePlain target:self action:@selector(backTapped:)];
+/*    UIBarButtonItem *backItem = [[UIBarButtonItem alloc] initWithImage:[self imageNamed:@"back" ] style:UIBarButtonItemStylePlain target:self action:@selector(backTapped:)];
     if (self.webView.canGoBack) {
-        backItem.tintColor = nil;
+        backItem.tintColor = [GPSAppDelegate appDelegate].contrastTintColor;
     } else {
         backItem.tintColor = [UIColor lightGrayColor];
     }
     
     UIBarButtonItem *forwardItem = [[UIBarButtonItem alloc] initWithImage:[self imageNamed:@"forward"] style:UIBarButtonItemStylePlain target:self action:@selector(forwardTapped:)];
     if (self.webView.canGoForward) {
-        forwardItem.tintColor = nil;
+        forwardItem.tintColor = [GPSAppDelegate appDelegate].contrastTintColor;;
     } else {
         forwardItem.tintColor = [UIColor lightGrayColor];
     }
-    
+
     UIBarButtonItem *reloadItem;
     if (self.webView.isLoading) {
         reloadItem = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemStop target:self action:@selector(stopTapped:)];
     } else {
         reloadItem = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemRefresh target:self action:@selector(reloadTapped:)];
     }
+    reloadItem.tintColor = [GPSAppDelegate appDelegate].contrastTintColor;
+  */
     UIBarButtonItem *shareItem = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemAction target:self action:@selector(shareTapped:)];
     UIBarButtonItem *flexibleSpaceItem = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemFlexibleSpace target:nil action:nil];
+    shareItem.tintColor = [GPSAppDelegate appDelegate].contrastTintColor;
     
-    [self setToolbarItems:@[flexibleSpaceItem, backItem, flexibleSpaceItem, forwardItem, flexibleSpaceItem, reloadItem, flexibleSpaceItem, shareItem, flexibleSpaceItem] animated:NO];
+    [self setToolbarItems:@[flexibleSpaceItem, shareItem] animated:NO];
 }
 
 - (void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object change:(NSDictionary *)change context:(void *)context
 {
     if ([keyPath isEqualToString:@"webView.title"]) {
-        self.title = change[@"new"];
+        if (self.viewTitle == nil) {
+            [self setNavTitle:change[@"new"]];
+        }
     } else if ([keyPath isEqualToString:@"webView.loading"]) {
         [self fillToolbar];
     } else if ([keyPath isEqualToString:@"webView.estimatedProgress"]) {
@@ -240,9 +282,15 @@
     UIApplication *app = [UIApplication sharedApplication];
     NSURL         *url = navigationAction.request.URL;
     
+    if (navigationAction.navigationType == WKNavigationTypeLinkActivated) {
+        [app openURL:url];
+        decisionHandler(WKNavigationActionPolicyCancel);
+        return;
+    }
+
     if (self.customSchemes) {
         for (NSString *scheme in self.customSchemes) {
-            if ([url.scheme isEqualToString:scheme] && [app canOpenURL:url]) {
+            if ([url.scheme isEqualToString:scheme]) {
                 [app openURL:url];
                 decisionHandler(WKNavigationActionPolicyCancel);
                 return;

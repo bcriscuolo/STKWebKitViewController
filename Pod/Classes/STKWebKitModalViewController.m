@@ -26,6 +26,19 @@
     return [self initWithURL:[NSURL URLWithString:urlString]];
 }
 
+- (instancetype)initWithHTMLString:(NSString *)htmlString baseURLString:(NSString *)baseURLString
+{
+    return [self initWithHTMLString:htmlString baseURLString:baseURLString isAbout:NO];
+}
+
+- (instancetype)initWithHTMLString:(NSString *)htmlString baseURLString:(NSString *)baseURLString isAbout:(BOOL)isAbout
+{
+    _webKitViewController = [[STKWebKitViewController alloc] initWithHTMLString:htmlString baseURLString:baseURLString isAbout:isAbout];
+    if (self = [super initWithRootViewController:_webKitViewController]) {
+    }
+    return self;
+}
+
 - (instancetype)initWithURL:(NSURL *)url
 {
     return [self initWithURL:url userScript:nil];
@@ -44,6 +57,8 @@
 - (void)viewWillAppear:(BOOL)animated
 {
     [super viewWillAppear:animated];
+    _webKitViewController.viewTitle = self.viewTitle;
+    _webKitViewController.isAbout = self.isAbout;
     self.webKitViewController.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemDone target:self action:@selector(closeController)];
 }
 
